@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/protoc-gen-go/descriptor"
 	"github.com/golang/protobuf/protoc-gen-go/generator"
+	"strings"
 )
 
 func init() {
@@ -11,9 +12,11 @@ func init() {
 }
 
 type events struct {
-	gen       *generator.Generator
-	consumers []string
-	publisher []string
+	gen             *generator.Generator
+	consumers       []string
+	publisher       []string
+	allConsumerName string
+	publisherName   string
 }
 
 func (e *events) Name() string {
@@ -27,31 +30,39 @@ func (e *events) Init(g *generator.Generator) {
 }
 
 func (e *events) Generate(file *generator.FileDescriptor) {
-	e.P("// HELLO WORLD!")
 	for _, message := range file.FileDescriptorProto.MessageType {
-		e.generateMessageInterface(message)
+		e.generateMessage(message)
 	}
+
+	e.allConsumerName = fmt.Sprintf("%sConsumeAll", strings.Title(file.GetPackage()))
+	e.publisherName = fmt.Sprintf("%sPublisher", strings.Title(file.GetPackage()))
 
 	e.generateCombinedInterfaces()
 
+	e.P("// Name that groups these events")
+	e.P("const serviceName string = \"", file.GetPackage(), "\"")
+
 	e.generatePublisher()
+
+	e.generateConsumer()
 }
 
 func (e *events) GenerateImports(file *generator.FileDescriptor) {
 	e.P(
 		`import (
 	"context"
+	"experiment-delivery-guarantees/pkg/mailbox"
 )`)
 }
 
 // P forwards to g.gen.P.
 func (e *events) P(args ...interface{}) { e.gen.P(args...) }
 
-func (e *events) generateMessageInterface(message *descriptor.DescriptorProto) {
+func (e *events) generateMessage(message *descriptor.DescriptorProto) {
 	if message.Name == nil {
 		return
 	}
-	messageName := *message.Name
+	messageName := message.GetName()
 
 	e.P("")
 	e.P("// ", messageName)
@@ -67,13 +78,32 @@ func (e *events) generateMessageInterface(message *descriptor.DescriptorProto) {
 	e.generatePublishInterfaceMethod(messageName)
 	e.P("}")
 	e.publisher = append(e.publisher, messageName)
+
+	e.P(fmt.Sprintf(`
+func (event *%s) EventName() string {
+	return "%s"
+}
+`, messageName, messageName))
+
+	e.P(fmt.Sprintf(`
+func (event *%s) EventMarshal() ([]byte, error) {
+	return proto.Marshal(event)
+}
+`, messageName))
+
+	e.P(fmt.Sprintf(`
+type %sEvent struct {
+	mailbox.Info
+	Event *%s
+}
+`, messageName, messageName))
 }
 
 func (e *events) generateCombinedInterfaces() {
 	e.P("// Combined Interfaces")
 	if len(e.publisher) > 0 {
 		e.P("// Used on the producer side to publish events")
-		e.P("type Publisher interface {")
+		e.P("type ", e.publisherName, " interface {")
 		for _, messageName := range e.publisher {
 			e.generatePublishInterfaceMethod(messageName)
 		}
@@ -82,7 +112,7 @@ func (e *events) generateCombinedInterfaces() {
 
 	if len(e.consumers) > 0 {
 		e.P("// Utility interface to help determine if you consume all event types")
-		e.P("type Consumer interface {")
+		e.P("type ", e.allConsumerName, " interface {")
 		for _, messageName := range e.consumers {
 			e.generateConsumerMethod(messageName)
 		}
@@ -91,8 +121,8 @@ func (e *events) generateCombinedInterfaces() {
 
 	e.P(`
 // the mechanism that interacts with the outbox/inbox
-type transport interface {
-	Publish(ctx context.Context, serviceName string, eventName string, eventData []byte) error
+type box interface {
+	Publish(ctx context.Context, serviceName string, event mailbox.Event) error
 }
 `)
 }
@@ -102,32 +132,40 @@ func (e *events) generatePublishInterfaceMethod(messageName string) {
 }
 
 func (e *events) generatePublishMethod(messageName string) {
-	serviceName := "accounting"
-	e.P("func (p *publisher) Publish", messageName, "(ctx context.Context, event *", messageName, ") error {")
-	e.P("	data, err := proto.Marshal(event)")
-	e.P("if err != nil { return err }")
-	e.P(fmt.Sprintf(`return p.transport.Publish(ctx, "%s", "%s", data)`, serviceName, messageName))
-	e.P("}")
+	e.P(fmt.Sprintf(`
+	func (p *publisher) Publish%s(ctx context.Context, event *%s) error {
+		return p.box.Publish(ctx, serviceName, event)
+	}
+	`, messageName, messageName))
 }
 
 func (e *events) generateConsumerMethod(messageName string) {
-	e.P("    Consume", messageName, "(context.Context, *", messageName, ")")
+	e.P("    Consume", messageName, "(context.Context, *", messageName, "Event) error")
 }
 
 func (e *events) generatePublisher() {
 	e.P("// The publisher of events")
 	e.P("type publisher struct {")
-	e.P("transport transport")
+	e.P("box box")
 	e.P("}")
 	e.P("")
 	e.P("// Use this to create your publisher")
-	e.P("func NewPublisher(transport transport) *publisher {")
+	e.P("func NewPublisher(outbox box) *publisher {")
 	e.P("   return &publisher{")
-	e.P(" transport: transport, ")
+	e.P(" box: outbox, ")
 	e.P("   }")
 	e.P("}")
 
 	for _, messageName := range e.publisher {
 		e.generatePublishMethod(messageName)
 	}
+}
+
+func (e *events) generateConsumer() {
+	e.P("// The registrar for event consumption")
+	e.P(fmt.Sprintf(
+		`
+func RegisterAllConsumers(box box, consumer %s) {
+}
+`, e.allConsumerName))
 }
