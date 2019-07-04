@@ -56,7 +56,6 @@ func (e *events) GenerateImports(file *generator.FileDescriptor) {
 	"context"
 	"go.lunarway.com/lw-go-postoffice"
 	"go.lunarway.com/lw-go-postoffice/protobufs"
-	"go.lunarway.com/lw-go-postoffice/store"
 )`)
 }
 
@@ -111,9 +110,9 @@ func (event *%s) EventUnmarshal(b []byte) error {
 	//`, messageName, messageName))
 
 	e.P(fmt.Sprintf(`
-func (event *%s) Consume(ctx context.Context, tx store.Transaction, info postoffice.Info, consumer postoffice.Consumer) (bool, error) {
+func (event *%s) Consume(ctx context.Context, info postoffice.Info, consumer postoffice.Consumer) (bool, error) {
 	if c, ok := consumer.(Event%sConsumer); ok {
-		return true, c.Consume%s(ctx, tx, info, event)
+		return true, c.Consume%s(ctx, info, event)
 	}
 	return false, nil
 }
@@ -151,7 +150,7 @@ func (e *events) generateCombinedInterfaces() {
 	e.P(`
 // the mechanism that interacts with the outbox/inbox
 type box interface {
-	Publish(ctx context.Context, tx store.Transaction, serviceName string, entityID string, event postoffice.Event) error
+	Publish(ctx context.Context, serviceName string, entityID string, event postoffice.Event) error
 	Register(publisherName string, consumer postoffice.Consumer)
 }
 `)
@@ -163,14 +162,14 @@ func (e *events) generatePublishInterfaceMethod(messageName string) {
 
 func (e *events) generatePublishMethod(messageName string) {
 	e.P(fmt.Sprintf(`
-	func (p *publisher) Publish%s(ctx context.Context, tx store.Transaction, entityID string, event *%s) error {
-		return p.box.Publish(ctx, tx, serviceName, entityID, event)
+	func (p *publisher) Publish%s(ctx context.Context, entityID string, event *%s) error {
+		return p.box.Publish(ctx, serviceName, entityID, event)
 	}
 	`, messageName, messageName))
 }
 
 func (e *events) generateConsumerMethod(messageName string) {
-	e.P("    Consume", messageName, "(context.Context, store.Transaction, postoffice.Info, *", messageName, ") error")
+	e.P("    Consume", messageName, "(context.Context, postoffice.Info, *", messageName, ") error")
 }
 
 func (e *events) generatePublisher() {
