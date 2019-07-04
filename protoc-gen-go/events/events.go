@@ -54,10 +54,9 @@ func (e *events) GenerateImports(file *generator.FileDescriptor) {
 	e.P(
 		`import (
 	"context"
-	"experiment-delivery-guarantees/pkg/postoffice"
-	"experiment-delivery-guarantees/pkg/model"
-	"experiment-delivery-guarantees/pkg/protobufs"
-	"experiment-delivery-guarantees/pkg/store"
+	"go.lunarway.com/lw-go-postoffice"
+	"go.lunarway.com/lw-go-postoffice/protobufs"
+	"go.lunarway.com/lw-go-postoffice/store"
 )`)
 }
 
@@ -112,7 +111,7 @@ func (event *%s) EventUnmarshal(b []byte) error {
 	//`, messageName, messageName))
 
 	e.P(fmt.Sprintf(`
-func (event *%s) Consume(ctx context.Context, tx store.Transaction, info model.Info, consumer interface{}) (bool, error) {
+func (event *%s) Consume(ctx context.Context, tx store.Transaction, info postoffice.Info, consumer postoffice.Consumer) (bool, error) {
 	if c, ok := consumer.(Event%sConsumer); ok {
 		return true, c.Consume%s(ctx, tx, info, event)
 	}
@@ -171,7 +170,7 @@ func (e *events) generatePublishMethod(messageName string) {
 }
 
 func (e *events) generateConsumerMethod(messageName string) {
-	e.P("    Consume", messageName, "(context.Context, store.Transaction, model.Info, *", messageName, ") error")
+	e.P("    Consume", messageName, "(context.Context, store.Transaction, postoffice.Info, *", messageName, ") error")
 }
 
 func (e *events) generatePublisher() {
