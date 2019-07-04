@@ -151,7 +151,7 @@ func (e *events) generateCombinedInterfaces() {
 // the mechanism that interacts with the outbox/inbox
 type box interface {
 	Publish(ctx context.Context, serviceName string, entityID string, event postoffice.Event) error
-	Register(publisherName string, consumer postoffice.Consumer)
+	Register(publisherName string, consumer postoffice.Consumer) error
 }
 `)
 }
@@ -194,8 +194,8 @@ func (e *events) generateConsumer() {
 	e.P("// The registrar for event consumption")
 	e.P(fmt.Sprintf(
 		`
-func RegisterAllConsumers(office box, consumer %s) {
-	office.Register(serviceName, consumer)
+func RegisterAllConsumers(office box, consumer %s) error {
+	return office.Register(serviceName, consumer)
 }
 `, e.allConsumerName))
 }
